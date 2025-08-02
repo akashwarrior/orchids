@@ -1,107 +1,156 @@
 import { config } from 'dotenv';
 import chalk from 'chalk';
-import path from 'node:path';
+import path from 'path';
 import { tools } from './tools.js';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { generateObject, type ModelMessage } from 'ai';
+import { generateObject } from 'ai';
 import { SYSTEM_PROMPT } from './systemPrompt.js';
-import { ResponseSchema, type OperationResult, type AIResponse } from './type.js';
+import { ResponseSchema } from './type.js';
+import type { AgentContext, OperationResult, AIResponse } from './type.js';
+import type { ModelMessage } from 'ai';
 
 config({
-    path: path.resolve(__dirname, '../../.env'),
+    path: path.resolve(process.cwd(), 'cli/.env'),
 });
 
-function getGeminiModel({ apiKey }: { apiKey: string }) {
-    const gemini = createGoogleGenerativeAI({
-        apiKey,
-    });
+function getGeminiModel() {
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-    return gemini("gemini-2.5-flash");
-}
-
-const messages: ModelMessage[] = [];
-
-export async function runAgent(prompt: string | null): Promise<{ isCompleted: boolean }> {
-    const API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-
-    if (!API_KEY) {
-        // Program should not run if API key is not defined
-        throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not defined in cli/.env file');
+    if (!apiKey) {
+        throw new Error(
+            chalk.red('\n❌ GOOGLE_GENERATIVE_AI_API_KEY is not defined in cli/.env file\n')
+        );
     }
 
-    if (prompt) {
-        messages.push({
+    const google = createGoogleGenerativeAI({ apiKey });
+    return google('gemini-2.5-flash');
+}
+
+export class DatabaseAgent {
+    private messages: ModelMessage[] = [];
+    private context: AgentContext;
+
+    constructor(initialPrompt: string) {
+        this.context = {
+            messagesCount: 0,
+            currentTask: initialPrompt,
+            startTime: Date.now(),
+        };
+
+        this.messages.push({
             role: 'user',
-            content: prompt,
+            content: initialPrompt,
         });
     }
 
-    try {
-        const { object } = await generateObject({
-            model: getGeminiModel({ apiKey: API_KEY }),
-            schema: ResponseSchema,
-            system: SYSTEM_PROMPT,
-            messages: messages,
-        });
-
-        messages.push({
-            role: 'assistant',
-            content: JSON.stringify(object),
-        });
-
-        console.log(chalk.cyan("\n🌸 Orchids CLI: ") + object.explanation);
-
-        if (object.request) {
-            const operationResult = await executeOperation(object);
-            messages.push({
-                role: 'user',
-                content: JSON.stringify(operationResult),
+    async runNextStep(): Promise<{ isCompleted: boolean; error?: string }> {
+        try {
+            const { object } = await generateObject({
+                model: getGeminiModel(),
+                schema: ResponseSchema,
+                system: SYSTEM_PROMPT,
+                messages: this.messages,
+                temperature: 0.1,
             });
-        }
 
-        return { isCompleted: !object.status };
-    } catch (error) {
-        if (error instanceof Error) {
-            console.error(chalk.red('\n❌ Error: ' + error.message));
-        } else {
-            console.error(chalk.red('\n❌ Error: ' + String(error)));
+            this.messages.push({
+                role: 'assistant',
+                content: JSON.stringify(object),
+            });
+
+            this.context.messagesCount++;
+
+            this.displayAgentThinking(object.explanation);
+
+            if (object.request) {
+                const result = await this.executeOperation(object);
+
+                this.messages.push({
+                    role: 'user',
+                    content: JSON.stringify(result),
+                });
+            }
+
+            if (object.status) {
+                this.displayCompletionMessage();
+            }
+
+            return { isCompleted: object.status };
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(chalk.red('\n❌ Agent Error:'), errorMessage);
+            return { isCompleted: true, error: errorMessage };
         }
-        return { isCompleted: true };
+    }
+
+    private async executeOperation(response: AIResponse): Promise<OperationResult> {
+        const { request, path, command, fileContent } = response;
+
+        try {
+            switch (request) {
+                case 'runCommand':
+                    if (!command) {
+                        return { success: false, error: 'Command is required for runCommand operation' };
+                    }
+                    return await tools.runCommand(command, path);
+
+                case 'readfile':
+                    return await tools.readFile(path);
+
+                case 'writefile':
+                    return await tools.writeFile(path, fileContent || '');
+
+                case 'deleteFile':
+                    return await tools.deleteFile(path);
+
+                case 'readdir':
+                    return await tools.listDirectory(path || '.');
+
+                case 'writedir':
+                    return await tools.createDirectory(path);
+
+                default:
+                    return { success: false, error: `Unknown operation: ${request}` };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
+    private displayAgentThinking(explanation: string) {
+        console.log(`\n${chalk.cyan('🤖 Agent:')} ${explanation}`);
+    }
+
+    private displayCompletionMessage() {
+        const duration = Math.round((Date.now() - this.context.startTime) / 1000);
+        console.log(chalk.green(`\n✅ Task completed successfully!`));
+        console.log(chalk.gray(`   Total operations: ${this.context.messagesCount}`));
+        console.log(chalk.gray(`   Time taken: ${duration}s`));
     }
 }
 
-async function executeOperation({ path, command, content, request }: AIResponse): Promise<OperationResult> {
-    if (!path) {
-        path = '.';
-    }
+export async function spawnAgent(prompt: string): Promise<{ isCompleted: boolean }> {
+    const agent = new DatabaseAgent(prompt);
+    const maxIterations = 50;
+    let iterations = 0;
 
-    try {
-        switch (request) {
-            case 'runCommand':
-                if (!command) {
-                    return { success: false, error: 'Command is required for operation' };
-                }
-                return await tools.runCommand(command, path);
+    while (iterations < maxIterations) {
+        iterations++;
+        const result = await agent.runNextStep();
 
-            case 'readfile':
-                return await tools.readFile(path);
-
-            case 'writefile':
-                return await tools.writeFile(path, content || '');
-
-            case 'deleteFile':
-                return await tools.deleteFile(path);
-
-            case 'readdir':
-                return await tools.listDirectory(path);
-
-            case 'writedir':
-                return await tools.createDirectory(path);
-
-            default:
-                return { success: false, error: 'Invalid operation' };
+        if (result.isCompleted) {
+            return { isCompleted: true };
         }
-    } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) };
+
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
+
+    console.log(chalk.yellow('\n⚠️  Maximum iterations reached. Task may be incomplete.'));
+    console.log(chalk.gray('   Consider breaking down the task into smaller parts.'));
+
+    return { isCompleted: true };
 }
