@@ -4,7 +4,18 @@ import chalk from 'chalk';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { OperationResult } from './type.js';
+import { glob } from 'glob';
 import ora from 'ora';
+
+const getSpinner = (text: string) => {
+  return ora({
+    text: chalk.dim(text),
+    spinner: 'dots2',
+    color: 'white',
+    indent: 2,
+    prefixText: chalk.white(' ╰─'),
+  }).start();
+}
 
 const execAsync = promisify(exec);
 const PROJECT_ROOT = path.resolve(process.cwd());
@@ -17,18 +28,18 @@ function resolvePath(filePath: string): string {
 }
 
 const readFile = async (filePath: string): Promise<OperationResult> => {
-  const spinner = ora({
-    text: `Reading file: ${chalk.cyan(filePath)}`,
-    color: 'blue',
-  }).start();
-
+  const spinner = getSpinner(`Reading ${filePath}...`)
   try {
     const absolutePath = resolvePath(filePath);
     const content = await fs.readFile(absolutePath, 'utf-8');
-    spinner.succeed(chalk.green(`Read file: ${filePath}`));
+
+    const fileSize = Buffer.byteLength(content, 'utf8');
+    const sizeStr = fileSize < 1024 ? `${fileSize} bytes` : `${(fileSize / 1024).toFixed(1)} KB`;
+
+    spinner.succeed(chalk.white(` Read ${filePath}`) + chalk.dim(` (${sizeStr})`));
     return { success: true, fileContent: content, path: filePath };
   } catch (error) {
-    spinner.fail(chalk.red(`Failed to read file: ${filePath}`));
+    spinner.fail(chalk.white(` Failed to read ${filePath}`));
     return {
       success: false,
       path: filePath,
@@ -38,24 +49,20 @@ const readFile = async (filePath: string): Promise<OperationResult> => {
 };
 
 const writeFile = async (filePath: string, content: string): Promise<OperationResult> => {
-  const spinner = ora({
-    text: `Writing file: ${chalk.yellow(filePath)}`,
-    color: 'yellow',
-  }).start();
-
+  const spinner = getSpinner(`Writing ${filePath}...`)
   try {
     const absolutePath = resolvePath(filePath);
     const dir = path.dirname(absolutePath);
 
     await fs.mkdir(dir, { recursive: true });
-
     await fs.writeFile(absolutePath, content, 'utf-8');
     const newContent = await fs.readFile(absolutePath, 'utf-8');
-    
-    spinner.succeed(chalk.green(`Wrote file: ${filePath}`));
+
+    const lines = content.split('\n').length;
+    spinner.succeed(chalk.white(` Created ${filePath}`) + chalk.dim(` (${lines} lines)`));
     return { success: true, path: filePath, fileContent: newContent };
   } catch (error) {
-    spinner.fail(chalk.red(`Failed to write file: ${filePath}`));
+    spinner.fail(chalk.white(` Failed to write ${filePath}`));
     return {
       success: false,
       path: filePath,
@@ -65,18 +72,14 @@ const writeFile = async (filePath: string, content: string): Promise<OperationRe
 };
 
 const deleteFile = async (filePath: string): Promise<OperationResult> => {
-  const spinner = ora({
-    text: `Deleting file: ${chalk.red(filePath)}`,
-    color: 'red',
-  }).start();
-
+  const spinner = getSpinner(`Deleting ${filePath}...`)
   try {
     const absolutePath = resolvePath(filePath);
     await fs.unlink(absolutePath);
-    spinner.succeed(chalk.green(`Deleted file: ${filePath}`));
+    spinner.succeed(chalk.white(` Deleted ${filePath}`));
     return { success: true, path: filePath };
   } catch (error) {
-    spinner.fail(chalk.red(`Failed to delete file: ${filePath}`));
+    spinner.fail(chalk.white(` Failed to delete ${filePath}`));
     return {
       success: false,
       path: filePath,
@@ -86,11 +89,7 @@ const deleteFile = async (filePath: string): Promise<OperationResult> => {
 };
 
 const listDirectory = async (dirPath: string): Promise<OperationResult> => {
-  const spinner = ora({
-    text: `Listing directory: ${chalk.blue(dirPath || '/')}`,
-    color: 'blue',
-  }).start();
-
+  const spinner = getSpinner(`Scanning ${dirPath || '/'}...`)
   try {
     const absolutePath = resolvePath(dirPath || '.');
     const entries = await fs.readdir(absolutePath, { withFileTypes: true });
@@ -100,10 +99,13 @@ const listDirectory = async (dirPath: string): Promise<OperationResult> => {
       type: entry.isDirectory() ? 'directory' : 'file',
     }));
 
-    spinner.succeed(chalk.green(`Listed ${contents.length} items`));
+    const dirs = contents.filter(c => c.type === 'directory').length;
+    const files = contents.filter(c => c.type === 'file').length;
+
+    spinner.succeed(chalk.white(` Found ${dirs} folders and ${files} files`));
     return { success: true, path: dirPath, directoryList: contents };
   } catch (error) {
-    spinner.fail(chalk.red(`Failed to list directory`));
+    spinner.fail(chalk.white(` Failed to list directory`));
     return {
       success: false,
       path: dirPath,
@@ -113,18 +115,14 @@ const listDirectory = async (dirPath: string): Promise<OperationResult> => {
 };
 
 const createDirectory = async (dirPath: string): Promise<OperationResult> => {
-  const spinner = ora({
-    text: `Creating directory: ${chalk.yellow(dirPath)}`,
-    color: 'yellow',
-  }).start();
-
+  const spinner = getSpinner(`Creating directory ${dirPath}...`)
   try {
     const absolutePath = resolvePath(dirPath);
     await fs.mkdir(absolutePath, { recursive: true });
-    spinner.succeed(chalk.green(`Created directory: ${dirPath}`));
+    spinner.succeed(chalk.white(` Created ${dirPath}`));
     return { success: true, path: dirPath };
   } catch (error) {
-    spinner.fail(chalk.red(`Failed to create directory`));
+    spinner.fail(chalk.white(` Failed to create directory`));
     return {
       success: false,
       path: dirPath,
@@ -134,15 +132,8 @@ const createDirectory = async (dirPath: string): Promise<OperationResult> => {
 };
 
 const runCommand = async (command: string, cwd?: string): Promise<OperationResult> => {
-  const spinner = ora({
-    text: `Running: ${chalk.cyan(command)}`,
-    color: 'cyan',
-  }).start();
-
-  if (cwd) {
-    spinner.text += chalk.gray(` in ${cwd}`);
-  }
-
+  const displayCommand = command.length > 60 ? command.substring(0, 57) + '...' : command;
+  const spinner = getSpinner(`Running: ${displayCommand}`)
   try {
     const workingDir = cwd ? resolvePath(cwd) : PROJECT_ROOT;
     const { stdout, stderr } = await execAsync(command, {
@@ -152,38 +143,55 @@ const runCommand = async (command: string, cwd?: string): Promise<OperationResul
     });
 
     const output = stdout + (stderr ? `\nWarnings:\n${stderr}` : '');
-
-    spinner.succeed(chalk.green(`Command completed`));
-
-    if (stdout && stdout.length < 500) {
-      console.log(chalk.gray('Output:'));
-      console.log(chalk.gray(stdout.trim()));
-    } else if (stdout) {
-      console.log(chalk.gray(`Output: ${stdout.length} characters (truncated)`));
-    }
-
-    if (stderr) {
-      console.log(chalk.yellow('Warnings:'));
-      console.log(chalk.yellow(stderr.trim()));
-    }
+    spinner.succeed(chalk.white('Ran command ' + displayCommand));
 
     return { success: true, commandOutput: output.trim(), path: cwd };
+
   } catch (error: any) {
-    spinner.fail(chalk.red(`Command failed`));
+    spinner.fail(chalk.white(' Command failed'));
     const errorMessage = error instanceof Error ? error.message : String(error);
-
-    console.log(chalk.red('Error:'), errorMessage);
-
-    if (error.stdout) {
-      console.log(chalk.gray('Output before error:'));
-      console.log(chalk.gray(error.stdout));
-    }
-
     return {
       success: false,
       error: errorMessage,
       commandOutput: error.stdout || '',
       path: cwd
+    };
+  }
+};
+
+const scanProject = async (pattern: string = '**/*'): Promise<OperationResult> => {
+  const spinner = getSpinner('Scanning project structure...')
+  try {
+    const files = await glob(pattern, {
+      cwd: PROJECT_ROOT,
+      ignore: [
+        '**/*node_modules/**/*',
+        '**/*cli/**/*',
+        '**/*.next/**/*',
+        '**/*.git/**/*',
+      ],
+      dot: true,
+      withFileTypes: true,
+    });
+
+    const fileList = await Promise.all(
+      files.map(async (file) => {
+        return {
+          name: file.name,
+          type: file.isDirectory() ? 'directory' : 'file',
+        };
+      })
+    );
+
+    spinner.succeed(chalk.white(` Found ${fileList.length} items`));
+    return { success: true, directoryList: fileList, path: pattern };
+
+  } catch (error) {
+    spinner.fail(chalk.white(' Failed to scan project'));
+    return {
+      success: false,
+      path: pattern,
+      error: error instanceof Error ? error.message : String(error)
     };
   }
 };
@@ -195,4 +203,5 @@ export const tools = {
   listDirectory,
   createDirectory,
   runCommand,
+  scanProject,
 };

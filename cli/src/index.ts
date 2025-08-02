@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import readline from 'node:readline/promises';
-import { Terminal } from './terminal';
+import { Terminal } from './terminal.js';
 
 const terminal = readline.createInterface({
   input: process.stdin,
@@ -9,18 +9,17 @@ const terminal = readline.createInterface({
 });
 
 process.on('uncaughtException', (error) => {
-  console.error(chalk.red('\n❌ Unexpected error:'), error.message);
-  console.log(chalk.yellow('\nPlease report this issue if it persists.'));
+  console.error(chalk.red('\n✗ Unexpected error:'), error.message);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error(chalk.red('\n❌ Unhandled Promise Rejection:'), reason);
+  console.error(chalk.red('\n✗ Unhandled Promise Rejection:'), reason);
   process.exit(1);
 });
 
 process.on('SIGINT', () => {
-  console.log(chalk.green('\n\n✨ Database Agent stopped. Goodbye! 👋\n'));
+  console.log(chalk.dim('\n\nStopped.'));
   terminal.close();
   process.exit(0);
 });
