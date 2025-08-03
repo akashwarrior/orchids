@@ -17,7 +17,8 @@ const getSpinner = (text: string) => {
 }
 
 const execAsync = promisify(exec);
-const PROJECT_ROOT = path.resolve(process.cwd());
+const cwd = process.cwd();
+const PROJECT_ROOT = path.resolve(cwd, path.basename(cwd) === 'cli' ? '../' : '.');
 
 function resolvePath(filePath: string): string {
   if (path.isAbsolute(filePath)) {
@@ -91,7 +92,6 @@ const writeFile = async (filePath: string, content: string): Promise<OperationRe
 
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(absolutePath, content, 'utf-8');
-    const newContent = await fs.readFile(absolutePath, 'utf-8');
 
     const lines = content.split('\n').length;
     spinner.succeed(chalk.white(` Written file: ${filePath}`) + chalk.dim(` (${lines} lines)`));
@@ -106,7 +106,7 @@ const writeFile = async (filePath: string, content: string): Promise<OperationRe
       }
     }
 
-    return { success: true, path: filePath, fileContent: newContent };
+    return { success: true, path: filePath };
   } catch (error) {
     spinner.fail(chalk.red(` Failed to write file: ${filePath}`));
     return {
@@ -208,7 +208,7 @@ const runCommand = async (command: string, cwd?: string): Promise<OperationResul
     const output = stdout + (stderr ? `\nWarnings:\n${stderr}` : '');
     spinner.succeed(chalk.white(' Ran command: ' + displayCommand) + chalk.dim(` (${output.length} characters)`));
 
-    return { success: true, commandOutput: output.trim(), path: cwd };
+    return { success: true, commandOutput: output, path: cwd };
 
   } catch (error: any) {
     spinner.fail(chalk.red(` Failed to run command: ${command}`));

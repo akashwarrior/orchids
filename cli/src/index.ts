@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import readline from 'node:readline/promises';
 import { Terminal } from './terminal.js';
+import path from 'node:path';
 
 const terminal = readline.createInterface({
   input: process.stdin,
