@@ -1,23 +1,31 @@
 import { z } from 'zod';
 
-export const StepsEnum = z.enum(['readfile', 'writefile', 'deleteFile', 'readdir', 'writedir', 'runCommand', 'scanProject']);
+export const FileOperationEnum = z.enum([
+    'READ_FILE',        // Read content from a specific file
+    'WRITE_FILE',       // Create or update a file with content
+    'DELETE_FILE',      // Remove a specific file
+    'READ_DIRECTORY',   // Read contents of a directory
+    'CREATE_DIRECTORY', // Create a new directory
+    'EXECUTE_COMMAND',  // Run a terminal/shell command
+    'SCAN_PROJECT'      // Recursively scan entire project structure
+]);
 
-export const ResponseSchema = z.object({
-    status: z.boolean().describe('true when task is complete, false when still processing'),
-    request: StepsEnum.nullable().describe('operation type needed (null, if no operation is needed)'),
-    path: z.string().default('.').describe('relative path from project root'),
-    fileContent: z.string().optional().describe('file content for writefile operation (if writing a file)'),
-    command: z.string().optional().describe('terminal command for runCommand operation (if running a command)'),
-    explanation: z.string().describe('explanation of current action'),
+export const AIResponseSchema = z.object({
+    success: z.boolean().describe('true when task is complete, false when still processing'),
+    operation: FileOperationEnum.nullable().describe('required operation type (null if no operation needed)'),
+    path: z.string().default('.').describe('target file/directory path relative to project root'),
+    fileContent: z.string().optional().describe('content to write when using WRITE_FILE operation'),
+    command: z.string().optional().describe('shell command to execute when using EXECUTE_COMMAND operation'),
+    explanation: z.string().describe('clear explanation of what action is being performed and why'),
 });
 
-export type AIResponse = z.infer<typeof ResponseSchema>;
+export type AIResponse = z.infer<typeof AIResponseSchema>;
 
 export interface OperationResult {
     success: boolean;
     path?: string;
     error?: string;
     fileContent?: string;
-    directoryList?: { name: string; type: string }[];
+    directoryList?: { path: string; type: 'directory' | 'file' }[];
     commandOutput?: string;
 }

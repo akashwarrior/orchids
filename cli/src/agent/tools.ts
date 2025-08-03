@@ -12,7 +12,6 @@ const getSpinner = (text: string) => {
     text: chalk.dim(text),
     spinner: 'dots2',
     color: 'white',
-    indent: 2,
     prefixText: chalk.white(' ╰─'),
   }).start();
 }
@@ -27,8 +26,44 @@ function resolvePath(filePath: string): string {
   return path.resolve(PROJECT_ROOT, filePath);
 }
 
+const shouldLintFile = (filePath: string): boolean => {
+  const ext = path.extname(filePath).toLowerCase();
+  const lintableExtensions = ['.js', '.jsx', '.ts', '.tsx'];
+  return lintableExtensions.includes(ext);
+};
+
+const lintFile = async (filePath: string): Promise<{ error: string | null }> => {
+  if (!shouldLintFile(filePath)) {
+    return { error: null };
+  }
+  const spinner = getSpinner(` Linting file: ${filePath}...`)
+
+  try {
+    const absolutePath = resolvePath(filePath);
+    const relativePath = path.relative(PROJECT_ROOT, absolutePath);
+    await execAsync(`npx next lint --file "${relativePath}" --fix`, {
+      cwd: PROJECT_ROOT,
+      timeout: 1000 * 60,
+    });
+    spinner.succeed(chalk.green(` Linting successful for ${filePath}`));
+    return { error: null };
+  } catch (error) {
+    spinner.fail(chalk.red(` Linting failed for file: ${filePath}`));
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+};
+
 const readFile = async (filePath: string): Promise<OperationResult> => {
-  const spinner = getSpinner(`Reading ${filePath}...`)
+  const spinner = getSpinner(` Reading file: ${filePath}...`)
+  const fileExists = await fs.access(filePath).then(() => true).catch(() => false);
+  if (!fileExists) {
+    spinner.fail(chalk.red(` File not found: ${filePath}`));
+    return {
+      success: false,
+      path: filePath,
+      error: 'File not found'
+    };
+  }
   try {
     const absolutePath = resolvePath(filePath);
     const content = await fs.readFile(absolutePath, 'utf-8');
@@ -36,10 +71,10 @@ const readFile = async (filePath: string): Promise<OperationResult> => {
     const fileSize = Buffer.byteLength(content, 'utf8');
     const sizeStr = fileSize < 1024 ? `${fileSize} bytes` : `${(fileSize / 1024).toFixed(1)} KB`;
 
-    spinner.succeed(chalk.white(` Read ${filePath}`) + chalk.dim(` (${sizeStr})`));
+    spinner.succeed(chalk.white(` Read file: ${filePath}`) + chalk.dim(` (${sizeStr})`));
     return { success: true, fileContent: content, path: filePath };
   } catch (error) {
-    spinner.fail(chalk.white(` Failed to read ${filePath}`));
+    spinner.fail(chalk.red(` Failed to read file: ${filePath}`));
     return {
       success: false,
       path: filePath,
@@ -49,7 +84,7 @@ const readFile = async (filePath: string): Promise<OperationResult> => {
 };
 
 const writeFile = async (filePath: string, content: string): Promise<OperationResult> => {
-  const spinner = getSpinner(`Writing ${filePath}...`)
+  const spinner = getSpinner(` Writing file: ${filePath}...`)
   try {
     const absolutePath = resolvePath(filePath);
     const dir = path.dirname(absolutePath);
@@ -59,10 +94,21 @@ const writeFile = async (filePath: string, content: string): Promise<OperationRe
     const newContent = await fs.readFile(absolutePath, 'utf-8');
 
     const lines = content.split('\n').length;
-    spinner.succeed(chalk.white(` Created ${filePath}`) + chalk.dim(` (${lines} lines)`));
+    spinner.succeed(chalk.white(` Written file: ${filePath}`) + chalk.dim(` (${lines} lines)`));
+
+    const { error } = await lintFile(filePath);
+
+    if (error) {
+      return {
+        success: false,
+        path: filePath,
+        error: error
+      }
+    }
+
     return { success: true, path: filePath, fileContent: newContent };
   } catch (error) {
-    spinner.fail(chalk.white(` Failed to write ${filePath}`));
+    spinner.fail(chalk.red(` Failed to write file: ${filePath}`));
     return {
       success: false,
       path: filePath,
@@ -72,14 +118,23 @@ const writeFile = async (filePath: string, content: string): Promise<OperationRe
 };
 
 const deleteFile = async (filePath: string): Promise<OperationResult> => {
-  const spinner = getSpinner(`Deleting ${filePath}...`)
+  const spinner = getSpinner(` Deleting file: ${filePath}...`)
+  const fileExists = await fs.access(filePath).then(() => true).catch(() => false);
+  if (!fileExists) {
+    spinner.fail(chalk.white(` File not found: ${filePath}`));
+    return {
+      success: false,
+      path: filePath,
+      error: 'File not found'
+    };
+  }
   try {
     const absolutePath = resolvePath(filePath);
     await fs.unlink(absolutePath);
-    spinner.succeed(chalk.white(` Deleted ${filePath}`));
+    spinner.succeed(chalk.white(` Deleted file: ${filePath}`));
     return { success: true, path: filePath };
   } catch (error) {
-    spinner.fail(chalk.white(` Failed to delete ${filePath}`));
+    spinner.fail(chalk.red(` Failed to delete file: ${filePath}`));
     return {
       success: false,
       path: filePath,
@@ -88,24 +143,33 @@ const deleteFile = async (filePath: string): Promise<OperationResult> => {
   }
 };
 
-const listDirectory = async (dirPath: string): Promise<OperationResult> => {
-  const spinner = getSpinner(`Scanning ${dirPath || '/'}...`)
+const readDirectory = async (dirPath: string): Promise<OperationResult> => {
+  const spinner = getSpinner(` Reading directory: ${dirPath || '/'}...`)
+  const isDirectoryExists = await fs.access(dirPath).then(() => true).catch(() => false);
+  if (!isDirectoryExists) {
+    spinner.fail(chalk.red(` Directory not found: ${dirPath}`));
+    return {
+      success: false,
+      path: dirPath,
+      error: 'Directory not found'
+    };
+  }
   try {
     const absolutePath = resolvePath(dirPath || '.');
     const entries = await fs.readdir(absolutePath, { withFileTypes: true });
 
     const contents = entries.map(entry => ({
-      name: entry.name,
+      path: path.join(dirPath, entry.name),
       type: entry.isDirectory() ? 'directory' : 'file',
-    }));
+    })) as OperationResult['directoryList'] || [];
 
     const dirs = contents.filter(c => c.type === 'directory').length;
     const files = contents.filter(c => c.type === 'file').length;
 
-    spinner.succeed(chalk.white(` Found ${dirs} folders and ${files} files`));
+    spinner.succeed(chalk.white(` Scanned directory: Found ${dirs} folders and ${files} files`));
     return { success: true, path: dirPath, directoryList: contents };
   } catch (error) {
-    spinner.fail(chalk.white(` Failed to list directory`));
+    spinner.fail(chalk.red(` Failed to scan directory: ${dirPath}`));
     return {
       success: false,
       path: dirPath,
@@ -115,14 +179,14 @@ const listDirectory = async (dirPath: string): Promise<OperationResult> => {
 };
 
 const createDirectory = async (dirPath: string): Promise<OperationResult> => {
-  const spinner = getSpinner(`Creating directory ${dirPath}...`)
+  const spinner = getSpinner(` Creating directory: ${dirPath}...`)
   try {
     const absolutePath = resolvePath(dirPath);
     await fs.mkdir(absolutePath, { recursive: true });
-    spinner.succeed(chalk.white(` Created ${dirPath}`));
+    spinner.succeed(chalk.white(` Created directory: ${dirPath}`));
     return { success: true, path: dirPath };
   } catch (error) {
-    spinner.fail(chalk.white(` Failed to create directory`));
+    spinner.fail(chalk.red(` Failed to create directory: ${dirPath}`));
     return {
       success: false,
       path: dirPath,
@@ -132,23 +196,22 @@ const createDirectory = async (dirPath: string): Promise<OperationResult> => {
 };
 
 const runCommand = async (command: string, cwd?: string): Promise<OperationResult> => {
-  const displayCommand = command.length > 60 ? command.substring(0, 57) + '...' : command;
-  const spinner = getSpinner(`Running: ${displayCommand}`)
+  const displayCommand = command.length > 60 ? command.substring(0, 65) + '...' : command;
+  const spinner = getSpinner(` Running command: ${displayCommand}`)
   try {
     const workingDir = cwd ? resolvePath(cwd) : PROJECT_ROOT;
     const { stdout, stderr } = await execAsync(command, {
       cwd: workingDir,
-      timeout: 120000,
-      maxBuffer: 1024 * 1024 * 10,
+      timeout: 1000 * 60 * 3,
     });
 
     const output = stdout + (stderr ? `\nWarnings:\n${stderr}` : '');
-    spinner.succeed(chalk.white('Ran command ' + displayCommand));
+    spinner.succeed(chalk.white(' Ran command: ' + displayCommand) + chalk.dim(` (${output.length} characters)`));
 
     return { success: true, commandOutput: output.trim(), path: cwd };
 
   } catch (error: any) {
-    spinner.fail(chalk.white(' Command failed'));
+    spinner.fail(chalk.red(` Failed to run command: ${command}`));
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       success: false,
@@ -160,7 +223,7 @@ const runCommand = async (command: string, cwd?: string): Promise<OperationResul
 };
 
 const scanProject = async (pattern: string = '**/*'): Promise<OperationResult> => {
-  const spinner = getSpinner('Scanning project structure...')
+  const spinner = getSpinner(' Scanning project...')
   try {
     const files = await glob(pattern, {
       cwd: PROJECT_ROOT,
@@ -169,25 +232,23 @@ const scanProject = async (pattern: string = '**/*'): Promise<OperationResult> =
         '**/*cli/**/*',
         '**/*.next/**/*',
         '**/*.git/**/*',
+        '**/*components/ui/**/*',
+        '**/*components/blocks/**/*',
       ],
       dot: true,
       withFileTypes: true,
     });
 
-    const fileList = await Promise.all(
-      files.map(async (file) => {
-        return {
-          name: file.name,
-          type: file.isDirectory() ? 'directory' : 'file',
-        };
-      })
-    );
+    const fileList = files.map((file) => ({
+      path: file.relative(),
+      type: file.isDirectory() ? 'directory' : 'file',
+    })) as OperationResult['directoryList'] || [];
 
-    spinner.succeed(chalk.white(` Found ${fileList.length} items`));
+    spinner.succeed(chalk.white(` Scanned project: Found ${fileList.length} items`));
     return { success: true, directoryList: fileList, path: pattern };
 
   } catch (error) {
-    spinner.fail(chalk.white(' Failed to scan project'));
+    spinner.fail(chalk.red(` Failed to scan project with pattern: ${pattern}`));
     return {
       success: false,
       path: pattern,
@@ -200,8 +261,9 @@ export const tools = {
   readFile,
   writeFile,
   deleteFile,
-  listDirectory,
+  readDirectory,
   createDirectory,
   runCommand,
   scanProject,
+  lintFile,
 };
