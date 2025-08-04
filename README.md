@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Orchids CLI Agent
 
-## Getting Started
+This project demonstrates **Orchid's Database Agent** - an AI-powered tool that can analyze a Next.js project and implement database-related features with full frontend integration. The agent can currently:
 
-First, run the development server:
+- Set up database schemas using Drizzle ORM
+- Create API endpoints for database operations
+- Integrate database functionality into the existing UI
+- Handle migrations and data seeding
+- Handle real-time lint errors
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Quick Start
+
+### Prerequisites
+- Node.js 18+ or Bun
+- PostgreSQL database (local or cloud)
+- Google Gemini API key
+
+### Installation
+
+1. **Clone and install dependencies:**
+    ```bash
+    git clone https://github.com/akashwarrior/orchids.git
+    cd orchids
+    npm install
+    ```
+
+2. **Set up environment variables:**
+    ```bash
+    # Create CLI environment file and add the api key
+    cp cli/.env.example cli/.env
+    ```
+
+3. **Configure database:**
+    ```bash
+    # Agent will use this url or you can mdify this url in system prompt
+    "DATABASE_URL=postgresql://postgres:password@localhost:5432"
+    ```
+
+### Running the Application
+
+1. **Start the development server:**
+    ```bash
+    npm run dev
+    ```
+
+2. **Open the CLI in a new terminal:**
+    ```bash
+    npm run orchids
+    ```
+
+3. **Try the database agent with example queries:**
+    ```
+    🌸 orchids › Can you store the recently played songs in a table
+    🌸 orchids › Can you store the 'Made for you' and 'Popular albums' in a table
+    ```
+
+## 🎮 Using the Database Agent
+
+The CLI provides an interactive interface where you can describe database features in natural language:
+
+### Available Commands
+- `help` - Show available commands
+- `clear` - Clear the terminal
+- `exit` - Exit the application
+
+## 📁 Project Structure
+
+```
+orchids/
+├── cli/
+│   ├── src/
+│   │   ├── agent/         # AI agent implementation
+│   │   ├── index.ts       # CLI entry point
+│   │   └── terminal.ts    # CLI interface
+│   └── package.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🧪 Test Queries
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Try these example queries to see the agent in action:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **"Can you store the recently played songs in a table"**
+   - Creates a `recently_played` table
+   - Implements API endpoints
+   - Integrates with the frontend player
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. **"Can you store the 'Made for you' and 'Popular albums' in a table"**
+   - Creates `albums` and `playlists` tables
+   - Seeds with sample data
+   - Updates the home page to fetch real data
